@@ -4,12 +4,36 @@ import './App.css'
 
 type ShapeTool = 'square' | 'rectangle' | 'circle'
 
+type Mode = 'draw' | 'scale'
+
 function App() {
   const mountRef = useRef<HTMLDivElement | null>(null)
   const [tool, setTool] = useState<ShapeTool>('rectangle')
+  const [mode, setMode] = useState<Mode>('draw')
+
+  const toolRef = useRef<ShapeTool>('rectangle')//
+  const modeRef = useRef<Mode>('draw')
+  
+  const shapesRef = useRef<{
+    type: ShapeTool
+    start: THREE.Vector3
+    end: THREE.Vector3
+    mesh: THREE.Mesh
+  }[]>([])
+  
+  const selectedIndexRef = useRef<number>(-1)
+  
+  useEffect(() => {
+    toolRef.current = tool
+  }, [tool])
+
+  useEffect(() => {
+    modeRef.current = mode
+  }, [mode])
 
   useEffect(() => {
     const mount = mountRef.current
+
 
     if (!mount) {
       return
@@ -96,9 +120,34 @@ function App() {
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      isDragging = true
       getWorldPoint(event, dragStart)
       dragCurrent.copy(dragStart)
+
+      if (modeRef.current === 'scale'){
+        const rect = renderer.domElement.getBoundingClientRect()
+        pointer.x = ((event.clientX - rect.left) / rect.width ) *2 - 1
+        pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+        
+        raycaster.setFromCamera(pointer, camera)
+
+        const intersects = raycaster.intersectObjects(
+          shapesRef.current.map(s => s.mesh)
+        )
+
+        if(intersects.length > 0){
+          const clickedMesh = intersects[0].object
+
+          const index = shapesRef.current.findIndex(s => s.mesh === clickedMesh)
+          selectedIndexRef.current = index
+          isDragging = true
+        } else {
+          selectedIndexRef.current = -1
+          isDragging = false
+        }
+
+      return
+      }
+      isDragging = true
       disposePreview()
     }
 
@@ -107,9 +156,31 @@ function App() {
         return
       }
 
+      if (modeRef.current === 'scale' && selectedIndexRef.current !== -1) {
+        getWorldPoint(event, dragCurrent)
+        
+        const shape = shapesRef.current[selectedIndexRef.current]
+
+        // update end point
+        shape.end = dragCurrent.clone()
+
+        // remove old mesh
+        scene.remove(shape.mesh)
+
+        // create new scaled mesh
+        const newMesh = createShapeMesh(shape.type, shape.start, shape.end, '#ff0000', 0.9)
+
+        scene.add(newMesh)
+
+        // update stored mesh
+        shape.mesh = newMesh
+
+        return
+      }
+
       getWorldPoint(event, dragCurrent)
       disposePreview()
-      previewMesh = createShapeMesh(tool, dragStart, dragCurrent, '#f8f8f8', 0.45)
+      previewMesh = createShapeMesh(toolRef.current, dragStart, dragCurrent, '#f8f8f8', 0.45)
       scene.add(previewMesh)
     }
 
@@ -119,12 +190,25 @@ function App() {
       }
       isDragging = false
 
+      if (modeRef.current === 'scale') {
+        selectedIndexRef.current = -1
+        return
+      }
+
       if (!previewMesh) {
         return
       }
 
-      const finalMesh = createShapeMesh(tool, dragStart, dragCurrent, '#ff0000', 0.9)
+      const finalMesh = createShapeMesh(toolRef.current, dragStart, dragCurrent, '#ff0000', 0.9)
       scene.add(finalMesh)
+
+      shapesRef.current.push({
+        type: toolRef.current,
+        start: dragStart.clone(),
+        end: dragCurrent.clone(),
+        mesh:finalMesh,
+      })
+
       disposePreview()
     }
 
@@ -159,35 +243,56 @@ function App() {
       renderer.dispose()
       mount.removeChild(renderer.domElement)
     }
-  }, [tool])
+  }, [])
 
   return (
-    <div className="app">
-      <div className="toolbar">
-        <button
-          className={tool === 'rectangle' ? 'active' : ''}
-          onClick={() => setTool('rectangle')}
-        >
-          Rectangle
-        </button>
-        <button
-          className={tool === 'square' ? 'active' : ''}
-          onClick={() => setTool('square')}
-        >
-          Square
-        </button>
-        <button
-          className={tool === 'circle' ? 'active' : ''}
-          onClick={() => setTool('circle')}
-        >
-          Circle
-        </button>
-      </div>
+  <div className="app">
+    <div className="toolbar">
+      <button
+        className={tool === 'rectangle' ? 'active' : ''}
+        onClick={() => {
+          setTool('rectangle')
+          setMode('draw')
+        }}
+      >
+        Rectangle
+      </button>
 
-      <div className="hint">Click and drag in canvas to draw {tool}.</div>
-      <div ref={mountRef} className="canvas-wrap" />
+      <button
+        className={tool === 'square' ? 'active' : ''}
+        onClick={() => {
+          setTool('square')
+          setMode('draw')
+        }}
+      >
+        Square
+      </button>
+
+      <button
+        className={tool === 'circle' ? 'active' : ''}
+        onClick={() => {
+          setTool('circle')
+          setMode('draw')
+        }}
+      >
+        Circle
+      </button>
+
+      <button
+        className={mode === 'scale' ? 'active' : ''}
+        onClick={() => setMode('scale')}
+      >
+        Scale
+      </button>
     </div>
-  )
+
+    <div className="hint">
+      Click and drag in canvas to draw {tool}.
+    </div>
+
+    <div ref={mountRef} className="canvas-wrap" />
+  </div>
+)
 }
 
 export default App
